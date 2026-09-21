@@ -790,15 +790,6 @@ async function openEpubReader(book){
       height: '100%'
     });
 
-    const savedCfi = getProgress(book.id);
-    const displayPromise = currentEpubRendition.display(savedCfi || undefined);
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
-    await Promise.race([displayPromise, timeoutPromise]);
-
-    document.getElementById('prevPage').disabled = false;
-    document.getElementById('nextPage').disabled = false;
-    document.getElementById('pageIndicator').textContent = 'Lectura de EPUB';
-
     currentEpubRendition.on('relocated', (location) => {
       saveProgress(currentBookId, location.start.cfi);
       if (currentEpubBook.locations && currentEpubBook.locations.length()){
@@ -808,7 +799,23 @@ async function openEpubReader(book){
       }
     });
 
-    currentEpubBook.locations.generate(1600).catch(() => {});
+    const savedCfi = getProgress(book.id);
+    const displayPromise = currentEpubRendition.display(savedCfi || undefined);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
+    await Promise.race([displayPromise, timeoutPromise]);
+
+    document.getElementById('prevPage').disabled = false;
+    document.getElementById('nextPage').disabled = false;
+    document.getElementById('pageIndicator').textContent = 'Lectura de EPUB';
+
+    currentEpubBook.locations.generate(1600).then(() => {
+      const loc = currentEpubRendition.currentLocation();
+      if (loc && loc.start){
+        const pct = Math.round(currentEpubBook.locations.percentageFromCfi(loc.start.cfi) * 100);
+        document.getElementById('pageIndicator').textContent = `${pct}% completado`;
+        savePercent(currentBookId, pct);
+      }
+    }).catch(() => {});
   } catch(err){
     console.error("Error cargando el EPUB:", err);
     document.getElementById('pageIndicator').textContent = 'Error al cargar';
