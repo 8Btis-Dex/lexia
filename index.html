@@ -799,6 +799,19 @@ async function openEpubReader(book){
       }
     });
 
+    let epubTouchStartX = 0;
+    currentEpubRendition.on('touchstart', (e) => {
+      epubTouchStartX = (e.changedTouches ? e.changedTouches[0].screenX : e.screenX);
+    });
+    currentEpubRendition.on('touchend', (e) => {
+      const endX = (e.changedTouches ? e.changedTouches[0].screenX : e.screenX);
+      const delta = endX - epubTouchStartX;
+      if (Math.abs(delta) > 50){
+        if (delta < 0) currentEpubRendition.next();
+        else currentEpubRendition.prev();
+      }
+    });
+
     const savedCfi = getProgress(book.id);
     const displayPromise = currentEpubRendition.display(savedCfi || undefined);
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
@@ -846,6 +859,23 @@ document.getElementById('nextPage').addEventListener('click', () => {
     currentPage++; renderPage(currentPage);
   }
 });
+
+/* Swipe táctil para pasar de página en PDF (EPUB usa su propio sistema de touch en epub.js) */
+let readerTouchStartX = 0;
+let readerTouchStartY = 0;
+document.getElementById('readerBody').addEventListener('touchstart', (e) => {
+  readerTouchStartX = e.changedTouches[0].screenX;
+  readerTouchStartY = e.changedTouches[0].screenY;
+}, { passive: true });
+document.getElementById('readerBody').addEventListener('touchend', (e) => {
+  if (currentFileType === 'epub') return;
+  const deltaX = e.changedTouches[0].screenX - readerTouchStartX;
+  const deltaY = e.changedTouches[0].screenY - readerTouchStartY;
+  if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)){
+    if (deltaX < 0) document.getElementById('nextPage').click();
+    else document.getElementById('prevPage').click();
+  }
+}, { passive: true });
 document.getElementById('closeReader').addEventListener('click', () => {
   document.getElementById('readerModal').classList.remove('active');
   currentPdfDoc = null;
