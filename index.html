@@ -311,24 +311,28 @@
   .audio-bar audio{ flex:1; min-width:200px; }
 
   /* Modal del lector en pantalla completa (Fullscreen API o botón) */
+  .modal-overlay.is-fullscreen{
+    padding:0;
+    background:#000;
+  }
   .reader-box.is-fullscreen{
     max-width:100%;
     max-height:100%;
-    width:100vw;
-    height:100vh;
+    width:100%;
+    height:100%;
+    margin:0;
     border-radius:0;
   }
-  #readerModal:fullscreen .reader-box,
-  #readerModal:-webkit-full-screen .reader-box{
+  .reader-box.is-fullscreen .reader-body{
+    padding:0;
+  }
+  .reader-box.is-fullscreen #epubViewer,
+  .reader-box.is-fullscreen canvas{
+    width:100%;
+    height:100%;
     max-width:100%;
     max-height:100%;
-    width:100vw;
-    height:100vh;
-    border-radius:0;
-  }
-  #readerModal:fullscreen #epubViewer,
-  #readerModal:-webkit-full-screen #epubViewer{
-    height:100%;
+    margin:0;
   }
 
   /* Adaptación para tablets */
@@ -736,15 +740,21 @@ document.getElementById('fullscreenBtn').addEventListener('click', () => {
   const readerBox = readerModal.querySelector('.reader-box');
   if (!document.fullscreenElement){
     (readerModal.requestFullscreen || readerModal.webkitRequestFullscreen)?.call(readerModal);
+    readerModal.classList.add('is-fullscreen');
     readerBox.classList.add('is-fullscreen');
   } else {
     (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    readerModal.classList.remove('is-fullscreen');
     readerBox.classList.remove('is-fullscreen');
   }
 });
 document.addEventListener('fullscreenchange', () => {
-  const readerBox = document.querySelector('#readerModal .reader-box');
-  if (!document.fullscreenElement && readerBox) readerBox.classList.remove('is-fullscreen');
+  const readerModal = document.getElementById('readerModal');
+  const readerBox = readerModal.querySelector('.reader-box');
+  if (!document.fullscreenElement){
+    readerModal.classList.remove('is-fullscreen');
+    readerBox.classList.remove('is-fullscreen');
+  }
 });
 
 async function openPdfReader(book){
@@ -887,6 +897,7 @@ document.getElementById('closeReader').addEventListener('click', () => {
   player.ontimeupdate = null;
   if (document.fullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   document.querySelector('#readerModal .reader-box')?.classList.remove('is-fullscreen');
+  document.getElementById('readerModal')?.classList.remove('is-fullscreen');
   renderLibrary();
 });
 
