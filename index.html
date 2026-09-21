@@ -658,14 +658,16 @@ async function openEpubReader(book){
   document.getElementById('nextPage').disabled = true;
 
   try {
-    currentEpubBook = ePub(getFileUrl(book));
+    currentEpubBook = ePub(getFileUrl(book), { openAs: 'epub' });
     currentEpubRendition = currentEpubBook.renderTo('epubViewer', {
       width: '100%',
       height: '100%'
     });
 
     const savedCfi = getProgress(book.id);
-    await currentEpubRendition.display(savedCfi || undefined);
+    const displayPromise = currentEpubRendition.display(savedCfi || undefined);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
+    await Promise.race([displayPromise, timeoutPromise]);
 
     document.getElementById('prevPage').disabled = false;
     document.getElementById('nextPage').disabled = false;
@@ -682,7 +684,8 @@ async function openEpubReader(book){
     currentEpubBook.locations.generate(1600).catch(() => {});
   } catch(err){
     console.error("Error cargando el EPUB:", err);
-    document.getElementById('epubViewer').innerHTML = '<p style="padding:20px;">No se pudo cargar el EPUB. Verificá la URL.</p>';
+    document.getElementById('pageIndicator').textContent = 'Error al cargar';
+    document.getElementById('epubViewer').innerHTML = '<p style="padding:20px;">No se pudo cargar el EPUB. Verificá la URL o el enlace de Drive.</p>';
   }
 }
 
