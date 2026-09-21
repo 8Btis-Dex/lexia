@@ -374,6 +374,20 @@
     border-radius:20px;
     margin-top:4px;
   }
+  .progress-bar-track{
+    width:100%;
+    height:6px;
+    background:rgba(255,255,255,0.15);
+    border-radius:4px;
+    margin-top:6px;
+    overflow:hidden;
+  }
+  .progress-bar-fill{
+    height:100%;
+    background:var(--gold);
+    border-radius:4px;
+    transition:width .3s ease;
+  }
   .format-badge{
     display:inline-block;
     font-size:10px;
@@ -478,6 +492,7 @@
         <input type="number" id="newPages" placeholder="Cantidad de páginas">
         <input type="number" id="newYear" placeholder="Año de publicación">
         <button id="addBookBtn">Agregar libro</button>
+        <button id="cancelEditBtn" style="display:none;background:transparent;border:1px solid var(--border);">Cancelar edición</button>
       </div>
       <div class="admin-list" id="adminList"></div>
     </div>
@@ -508,6 +523,7 @@ let currentView = localStorage.getItem('lexia-view') || 'grid';
 let currentPdfDoc = null;
 let currentPage = 1;
 let currentBookId = null;
+let currentBookRef = null;
 let currentFileType = 'pdf';
 let currentEpubBook = null;
 let currentEpubRendition = null;
@@ -569,7 +585,7 @@ function renderLibrary(){
   empty.style.display = 'none';
 
   filtered.forEach(book => {
-    const progress = getProgress(book.id);
+    const percent = getPercent(book.id);
     const card = document.createElement('div');
     card.className = 'book-card';
     card.innerHTML = `
@@ -580,7 +596,10 @@ function renderLibrary(){
         <p class="book-title">${book.title}<span class="format-badge">${(book.fileType || 'pdf').toUpperCase()}</span></p>
         <p class="book-meta">${book.author || 'Autor desconocido'}</p>
         <p class="book-meta">${book.pages || '?'} páginas · ${book.year || '?'}</p>
-        ${progress ? `<span class="progress-badge">${(book.fileType || 'pdf') === 'epub' ? 'En curso' : 'Pág. ' + progress}</span>` : ''}
+        ${percent > 0 ? `
+        <span class="progress-badge">${percent}% leído</span>
+        <div class="progress-bar-track"><div class="progress-bar-fill" style="width:${percent}%"></div></div>
+        ` : ''}
       </div>
     `;
     card.addEventListener('click', () => openReader(book));
@@ -597,6 +616,12 @@ function getProgress(bookId){
 function saveProgress(bookId, page){
   localStorage.setItem('lexia-progress-' + bookId, page);
 }
+function getPercent(bookId){
+  return parseInt(localStorage.getItem('lexia-percent-' + bookId)) || 0;
+}
+function savePercent(bookId, percent){
+  localStorage.setItem('lexia-percent-' + bookId, Math.max(0, Math.min(100, Math.round(percent))));
+}
 
 /* ============ LECTOR PDF / EPUB EMBEBIDO ============ */
 function getFileUrl(book){
@@ -605,6 +630,7 @@ function getFileUrl(book){
 
 async function openReader(book){
   currentBookId = book.id;
+  currentBookRef = book;
   currentFileType = book.fileType || 'pdf';
   document.getElementById('readerTitle').textContent = book.title;
   document.getElementById('readerModal').classList.add('active');
@@ -650,6 +676,8 @@ async function renderPage(num){
   document.getElementById('nextPage').disabled = num >= currentPdfDoc.numPages;
 
   saveProgress(currentBookId, num);
+  const totalPages = (currentBookRef && currentBookRef.pages) || currentPdfDoc.numPages;
+  savePercent(currentBookId, (num / totalPages) * 100);
 }
 
 async function openEpubReader(book){
@@ -678,6 +706,7 @@ async function openEpubReader(book){
       if (currentEpubBook.locations && currentEpubBook.locations.length()){
         const pct = Math.round(currentEpubBook.locations.percentageFromCfi(location.start.cfi) * 100);
         document.getElementById('pageIndicator').textContent = `${pct}% completado`;
+        savePercent(currentBookId, pct);
       }
     });
 
@@ -715,7 +744,9 @@ document.getElementById('nextPage').addEventListener('click', () => {
 document.getElementById('closeReader').addEventListener('click', () => {
   document.getElementById('readerModal').classList.remove('active');
   currentPdfDoc = null;
+  currentBookRef = null;
   destroyEpubReader();
+  renderLibrary();
 });
 
 /* ============ LOGIN ADMIN ============ */
@@ -761,19 +792,48 @@ document.getElementById('addBookBtn').addEventListener('click', async () => {
   }
 
   try {
-    await db.collection('books').add({ title, author, fileType, fileUrl, coverUrl, pages, year });
-    document.getElementById('newTitle').value = '';
-    document.getElementById('newAuthor').value = '';
-    document.getElementById('newFileType').value = 'pdf';
-    document.getElementById('newPdfUrl').value = '';
-    document.getElementById('newCoverUrl').value = '';
-    document.getElementById('newPages').value = '';
-    document.getElementById('newYear').value = '';
+    if (editingBookId){
+      await db.collection('books').doc(editingBookId).update({ title, author, fileType, fileUrl, coverUrl, pages, year });
+    } else {
+      await db.collection('books').add({ title, author, fileType, fileUrl, coverUrl, pages, year });
+    }
+    resetAdminForm();
   } catch(err){
-    console.error("Error agregando libro:", err);
-    alert('No se pudo agregar el libro.');
+    console.error("Error guardando libro:", err);
+    alert('No se pudo guardar el libro.');
   }
 });
+
+document.getElementById('cancelEditBtn').addEventListener('click', resetAdminForm);
+
+let editingBookId = null;
+
+function resetAdminForm(){
+  editingBookId = null;
+  document.getElementById('newTitle').value = '';
+  document.getElementById('newAuthor').value = '';
+  document.getElementById('newFileType').value = 'pdf';
+  document.getElementById('newPdfUrl').value = '';
+  document.getElementById('newCoverUrl').value = '';
+  document.getElementById('newPages').value = '';
+  document.getElementById('newYear').value = '';
+  document.getElementById('addBookBtn').textContent = 'Agregar libro';
+  document.getElementById('cancelEditBtn').style.display = 'none';
+}
+
+function startEditBook(book){
+  editingBookId = book.id;
+  document.getElementById('newTitle').value = book.title || '';
+  document.getElementById('newAuthor').value = book.author || '';
+  document.getElementById('newFileType').value = book.fileType || 'pdf';
+  document.getElementById('newPdfUrl').value = getFileUrl(book) || '';
+  document.getElementById('newCoverUrl').value = book.coverUrl || '';
+  document.getElementById('newPages').value = book.pages || '';
+  document.getElementById('newYear').value = book.year || '';
+  document.getElementById('addBookBtn').textContent = 'Guardar cambios';
+  document.getElementById('cancelEditBtn').style.display = '';
+  document.getElementById('newTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 function renderAdminList(){
   const list = document.getElementById('adminList');
@@ -783,10 +843,15 @@ function renderAdminList(){
     item.className = 'admin-list-item';
     item.innerHTML = `
       <span>${book.title} — ${book.author || 'N/A'} (${(book.fileType || 'pdf').toUpperCase()})</span>
-      <button data-id="${book.id}">Eliminar</button>
+      <div>
+        <button data-action="edit" data-id="${book.id}">Editar</button>
+        <button data-action="delete" data-id="${book.id}">Eliminar</button>
+      </div>
     `;
-    item.querySelector('button').addEventListener('click', async () => {
+    item.querySelector('[data-action="edit"]').addEventListener('click', () => startEditBook(book));
+    item.querySelector('[data-action="delete"]').addEventListener('click', async () => {
       if (confirm(`¿Eliminar "${book.title}"?`)){
+        if (editingBookId === book.id) resetAdminForm();
         await db.collection('books').doc(book.id).delete();
       }
     });
