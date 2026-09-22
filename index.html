@@ -300,15 +300,26 @@
 
   .audio-bar{
     display:flex;
-    align-items:center;
-    gap:12px;
+    flex-direction:column;
+    align-items:stretch;
+    gap:8px;
     padding:10px 16px;
     background:var(--navy);
     border-bottom:1px solid var(--border);
-    flex-wrap:wrap;
   }
-  .audio-bar span{ color:var(--gold-light); font-size:13px; white-space:nowrap; }
-  .audio-bar audio{ flex:1; min-width:200px; }
+  .audio-bar span{ color:var(--gold-light); font-size:13px; }
+  .audio-bar audio{ width:100%; }
+  .audio-bar iframe{ width:100%; height:152px; border-radius:8px; }
+
+  #themeSelector{
+    padding:6px 10px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    font-size:13px;
+    cursor:pointer;
+  }
 
   /* Modal del lector en pantalla completa (Fullscreen API o botón) */
   .modal-overlay.is-fullscreen{
@@ -345,7 +356,7 @@
     .reader-controls button{ padding:12px 18px; font-size:15px; min-height:44px; }
     .modal-header{ padding:14px 16px; }
     .modal-close{ font-size:26px; min-width:44px; min-height:44px; }
-    .audio-bar audio{ min-width:150px; }
+    .audio-bar iframe{ height:132px; }
   }
   @media (max-width: 640px){
     #library.grid{ grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:10px; }
@@ -500,6 +511,11 @@
     <div class="modal-header">
       <h3 id="readerTitle">Título del libro</h3>
       <div style="display:flex;align-items:center;gap:8px;">
+        <select id="themeSelector" title="Tema de lectura">
+          <option value="light">☀️ Claro</option>
+          <option value="dark">🌙 Oscuro</option>
+          <option value="sepia">📜 Sepia</option>
+        </select>
         <button class="modal-close" id="fullscreenBtn" title="Pantalla completa">⛶</button>
         <button class="modal-close" id="closeReader">&times;</button>
       </div>
@@ -507,6 +523,7 @@
     <div class="audio-bar" id="audioBar" style="display:none;">
       <span id="audioLabel">🎧 Audiolibro</span>
       <audio id="audioPlayer" controls preload="metadata"></audio>
+      <iframe id="spotifyEmbed" style="display:none;" frameborder="0" allow="encrypted-media; autoplay; clipboard-write" loading="lazy"></iframe>
     </div>
     <div class="reader-body" id="readerBody">
       <canvas id="pdfCanvas"></canvas>
@@ -549,7 +566,7 @@
           <option value="epub">EPUB</option>
         </select>
         <input type="url" id="newPdfUrl" placeholder="URL del archivo (Google Drive u otro hosting)">
-        <input type="url" id="newAudioUrl" placeholder="URL del audiolibro (opcional)">
+        <input type="url" id="newAudioUrl" placeholder="URL del audiolibro (archivo directo o link de Spotify)">
         <input type="url" id="newCoverUrl" placeholder="URL de la portada (opcional)">
         <input type="number" id="newPages" placeholder="Cantidad de páginas">
         <input type="number" id="newYear" placeholder="Año de publicación">
@@ -697,6 +714,7 @@ async function openReader(book){
   document.getElementById('readerTitle').textContent = book.title;
   document.getElementById('readerModal').classList.add('active');
   setupAudioBar(book);
+  document.getElementById('themeSelector').value = readingTheme;
 
   const canvas = document.getElementById('pdfCanvas');
   const epubViewer = document.getElementById('epubViewer');
@@ -712,12 +730,76 @@ async function openReader(book){
   }
 }
 
+/* ============ TEMA DE LECTURA (Claro / Oscuro / Sepia) ============ */
+let readingTheme = localStorage.getItem('lexia-theme') || 'light';
+
+function applyPdfTheme(theme){
+  const canvas = document.getElementById('pdfCanvas');
+  canvas.style.filter = theme === 'dark' ? 'invert(1) hue-rotate(180deg)'
+    : theme === 'sepia' ? 'sepia(0.9) brightness(0.95)'
+    : 'none';
+}
+
+function registerEpubThemes(rendition){
+  rendition.themes.register('light', { body: { background: '#ffffff !important', color: '#000000 !important' } });
+  rendition.themes.register('dark', { body: { background: '#000000 !important', color: '#e6e6e6 !important' }, 'a, a:link': { color: '#8ecfff !important' } });
+  rendition.themes.register('sepia', { body: { background: '#f4ecd8 !important', color: '#5b4636 !important' } });
+  rendition.themes.select(readingTheme);
+}
+
+document.getElementById('themeSelector').addEventListener('change', (e) => {
+  readingTheme = e.target.value;
+  localStorage.setItem('lexia-theme', readingTheme);
+  if (currentFileType === 'epub' && currentEpubRendition){
+    currentEpubRendition.themes.select(readingTheme);
+  } else {
+    applyPdfTheme(readingTheme);
+  }
+});
+
 /* ============ AUDIOLIBRO ============ */
+function getSpotifyEmbedUrl(url){
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('spotify.com')) return null;
+    const knownTypes = ['track', 'album', 'playlist', 'episode', 'show', 'artist'];
+    const parts = u.pathname.split('/').filter(Boolean);
+    const idx = parts.findIndex(p => knownTypes.includes(p));
+    if (idx === -1 || !parts[idx + 1]) return null;
+    const type = parts[idx];
+    const id = parts[idx + 1].split('?')[0];
+    return `https://open.spotify.com/embed/${type}/${id}`;
+  } catch(e){
+    return null;
+  }
+}
+
 function setupAudioBar(book){
   const bar = document.getElementById('audioBar');
   const player = document.getElementById('audioPlayer');
-  if (book.audioUrl){
-    bar.style.display = 'flex';
+  const spotify = document.getElementById('spotifyEmbed');
+
+  player.pause();
+  player.removeAttribute('src');
+  player.ontimeupdate = null;
+  player.style.display = 'none';
+  spotify.style.display = 'none';
+  spotify.src = '';
+
+  if (!book.audioUrl){
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+
+  const embedUrl = getSpotifyEmbedUrl(book.audioUrl);
+  if (embedUrl){
+    document.getElementById('audioLabel').textContent = '🎧 Audiolibro (Spotify)';
+    spotify.src = embedUrl;
+    spotify.style.display = 'block';
+  } else {
+    document.getElementById('audioLabel').textContent = '🎧 Audiolibro';
+    player.style.display = 'block';
     player.src = book.audioUrl;
     const savedTime = parseFloat(localStorage.getItem('lexia-audio-' + book.id)) || 0;
     if (savedTime){
@@ -726,11 +808,6 @@ function setupAudioBar(book){
     player.ontimeupdate = () => {
       localStorage.setItem('lexia-audio-' + book.id, player.currentTime);
     };
-  } else {
-    bar.style.display = 'none';
-    player.pause();
-    player.removeAttribute('src');
-    player.ontimeupdate = null;
   }
 }
 
@@ -762,6 +839,7 @@ async function openPdfReader(book){
     currentPdfDoc = await pdfjsLib.getDocument(getFileUrl(book)).promise;
     const savedPage = parseInt(getProgress(book.id)) || 1;
     currentPage = Math.min(savedPage, currentPdfDoc.numPages);
+    applyPdfTheme(readingTheme);
     renderPage(currentPage);
   } catch(err){
     console.error("Error cargando el PDF:", err);
@@ -799,6 +877,7 @@ async function openEpubReader(book){
       width: '100%',
       height: '100%'
     });
+    registerEpubThemes(currentEpubRendition);
 
     currentEpubRendition.on('relocated', (location) => {
       saveProgress(currentBookId, location.start.cfi);
@@ -895,6 +974,7 @@ document.getElementById('closeReader').addEventListener('click', () => {
   player.pause();
   player.removeAttribute('src');
   player.ontimeupdate = null;
+  document.getElementById('spotifyEmbed').src = '';
   if (document.fullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   document.querySelector('#readerModal .reader-box')?.classList.remove('is-fullscreen');
   document.getElementById('readerModal')?.classList.remove('is-fullscreen');
