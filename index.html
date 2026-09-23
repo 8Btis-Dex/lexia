@@ -524,7 +524,7 @@
     <div class="audio-bar" id="audioBar" style="display:none;">
       <span id="audioLabel">🎧 Audiolibro</span>
       <audio id="audioPlayer" controls preload="metadata"></audio>
-      <iframe id="spotifyEmbed" style="display:none;" frameborder="0" allow="encrypted-media; autoplay; clipboard-write" loading="lazy"></iframe>
+      <iframe id="audioEmbed" style="display:none;" frameborder="0" allow="encrypted-media; autoplay; clipboard-write" loading="lazy"></iframe>
     </div>
     <div class="reader-body" id="readerBody">
       <canvas id="pdfCanvas"></canvas>
@@ -567,7 +567,7 @@
           <option value="epub">EPUB</option>
         </select>
         <input type="url" id="newPdfUrl" placeholder="URL del archivo (Google Drive u otro hosting)">
-        <input type="url" id="newAudioUrl" placeholder="URL del audiolibro (archivo directo o link de Spotify)">
+        <input type="url" id="newAudioUrl" placeholder="URL del audiolibro (archivo directo, Spotify, YouTube/YT Music o SoundCloud)">
         <input type="url" id="newCoverUrl" placeholder="URL de la portada (opcional)">
         <input type="number" id="newPages" placeholder="Cantidad de páginas">
         <input type="number" id="newYear" placeholder="Año de publicación">
@@ -759,17 +759,46 @@ document.getElementById('themeSelector').addEventListener('change', (e) => {
 });
 
 /* ============ AUDIOLIBRO ============ */
-function getSpotifyEmbedUrl(url){
+function getEmbedInfo(url){
   try {
     const u = new URL(url);
-    if (!u.hostname.includes('spotify.com')) return null;
-    const knownTypes = ['track', 'album', 'playlist', 'episode', 'show', 'artist'];
-    const parts = u.pathname.split('/').filter(Boolean);
-    const idx = parts.findIndex(p => knownTypes.includes(p));
-    if (idx === -1 || !parts[idx + 1]) return null;
-    const type = parts[idx];
-    const id = parts[idx + 1].split('?')[0];
-    return `https://open.spotify.com/embed/${type}/${id}`;
+    const host = u.hostname.replace('www.', '');
+
+    if (host.includes('spotify.com')){
+      const knownTypes = ['track', 'album', 'playlist', 'episode', 'show', 'artist'];
+      const parts = u.pathname.split('/').filter(Boolean);
+      const idx = parts.findIndex(p => knownTypes.includes(p));
+      if (idx === -1 || !parts[idx + 1]) return null;
+      const type = parts[idx];
+      const id = parts[idx + 1].split('?')[0];
+      return { label: 'Spotify', height: 152, embedUrl: `https://open.spotify.com/embed/${type}/${id}` };
+    }
+
+    if (host === 'youtube.com' || host === 'youtu.be' || host === 'music.youtube.com'){
+      let videoId = null;
+      const playlistId = u.searchParams.get('list');
+      const label = host === 'music.youtube.com' ? 'YouTube Music' : 'YouTube';
+      if (host === 'youtu.be'){
+        videoId = u.pathname.slice(1).split('?')[0];
+      } else if (u.pathname === '/watch'){
+        videoId = u.searchParams.get('v');
+      } else if (u.pathname.startsWith('/embed/')){
+        videoId = u.pathname.split('/')[2];
+      }
+      if (videoId){
+        return { label, height: 220, embedUrl: `https://www.youtube.com/embed/${videoId}${playlistId ? '?list=' + playlistId : ''}` };
+      }
+      if (playlistId){
+        return { label, height: 220, embedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}` };
+      }
+      return null;
+    }
+
+    if (host.includes('soundcloud.com')){
+      return { label: 'SoundCloud', height: 166, embedUrl: `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23d4af37&auto_play=false&show_user=true` };
+    }
+
+    return null;
   } catch(e){
     return null;
   }
@@ -778,14 +807,14 @@ function getSpotifyEmbedUrl(url){
 function setupAudioBar(book){
   const bar = document.getElementById('audioBar');
   const player = document.getElementById('audioPlayer');
-  const spotify = document.getElementById('spotifyEmbed');
+  const embed = document.getElementById('audioEmbed');
 
   player.pause();
   player.removeAttribute('src');
   player.ontimeupdate = null;
   player.style.display = 'none';
-  spotify.style.display = 'none';
-  spotify.src = '';
+  embed.style.display = 'none';
+  embed.src = '';
 
   if (!book.audioUrl){
     bar.style.display = 'none';
@@ -793,11 +822,12 @@ function setupAudioBar(book){
   }
   bar.style.display = 'flex';
 
-  const embedUrl = getSpotifyEmbedUrl(book.audioUrl);
-  if (embedUrl){
-    document.getElementById('audioLabel').textContent = '🎧 Audiolibro (Spotify)';
-    spotify.src = embedUrl;
-    spotify.style.display = 'block';
+  const info = getEmbedInfo(book.audioUrl);
+  if (info){
+    document.getElementById('audioLabel').textContent = `🎧 Audiolibro (${info.label})`;
+    embed.style.height = info.height + 'px';
+    embed.src = info.embedUrl;
+    embed.style.display = 'block';
   } else {
     document.getElementById('audioLabel').textContent = '🎧 Audiolibro';
     player.style.display = 'block';
@@ -975,7 +1005,7 @@ document.getElementById('closeReader').addEventListener('click', () => {
   player.pause();
   player.removeAttribute('src');
   player.ontimeupdate = null;
-  document.getElementById('spotifyEmbed').src = '';
+  document.getElementById('audioEmbed').src = '';
   if (document.fullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   document.querySelector('#readerModal .reader-box')?.classList.remove('is-fullscreen');
   document.getElementById('readerModal')?.classList.remove('is-fullscreen');
