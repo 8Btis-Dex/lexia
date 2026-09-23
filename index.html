@@ -468,6 +468,19 @@
     margin-left:6px;
     vertical-align:middle;
   }
+  .offline-check{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    color:var(--text-soft);
+    margin-top:6px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .offline-check input{ cursor:pointer; }
+  .offline-check.is-downloading{ opacity:.6; pointer-events:none; }
+  .offline-check .offline-state{ font-size:11px; }
 </style>
 </head>
 <body data-theme="light">
@@ -569,7 +582,7 @@
           <option value="pdf">PDF</option>
           <option value="epub">EPUB</option>
         </select>
-        <input type="url" id="newPdfUrl" placeholder="URL del archivo (Google Drive u otro hosting)">
+        <input type="url" id="newPdfUrl" placeholder="URL del archivo (GitHub u otro hosting)">
         <input type="url" id="newAudioUrl" placeholder="URL del audiolibro (archivo directo, Spotify, YouTube/YT Music o SoundCloud)">
         <input type="url" id="newCoverUrl" placeholder="URL de la portada (opcional)">
         <input type="number" id="newPages" placeholder="Cantidad de páginas">
@@ -595,6 +608,11 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+/* Permite que el catálogo (lista de libros) quede disponible sin conexión
+   una vez que se cargó al menos una vez con internet */
+db.enablePersistence().catch(err => {
+  console.warn('Persistencia offline de Firestore no disponible:', err.code);
+});
 
 /* ============ CONFIG PDF.js ============ */
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -683,9 +701,34 @@ function renderLibrary(){
         <span class="progress-badge">${percent}% leído</span>
         <div class="progress-bar-track"><div class="progress-bar-fill" style="width:${percent}%"></div></div>
         ` : ''}
+        ${offlineSupported ? `
+        <label class="offline-check" data-offline-label="${book.id}">
+          <input type="checkbox" class="offline-toggle" data-id="${book.id}" ${isMarkedOffline(book.id) ? 'checked' : ''}>
+          <span class="offline-state">📥 Offline</span>
+        </label>
+        ` : ''}
       </div>
     `;
     card.addEventListener('click', () => openReader(book));
+    if (offlineSupported){
+      const offlineLabel = card.querySelector(`[data-offline-label="${book.id}"]`);
+      const offlineCheckbox = card.querySelector('.offline-toggle');
+      offlineLabel.addEventListener('click', e => e.stopPropagation());
+      offlineCheckbox.addEventListener('change', async (e) => {
+        const stateSpan = offlineLabel.querySelector('.offline-state');
+        offlineLabel.classList.add('is-downloading');
+        if (e.target.checked){
+          stateSpan.textContent = '⏳ Descargando…';
+          const ok = await enableOffline(book);
+          if (!ok){ e.target.checked = false; }
+          stateSpan.textContent = e.target.checked ? '✅ Offline' : '📥 Offline';
+        } else {
+          await disableOffline(book);
+          stateSpan.textContent = '📥 Offline';
+        }
+        offlineLabel.classList.remove('is-downloading');
+      });
+    }
     lib.appendChild(card);
   });
 }
@@ -704,6 +747,64 @@ function getPercent(bookId){
 }
 function savePercent(bookId, percent){
   localStorage.setItem('lexia-percent-' + bookId, Math.max(0, Math.min(100, Math.round(percent))));
+}
+
+/* ============ LECTURA OFFLINE (Cache API) ============ */
+const OFFLINE_CACHE = 'lexia-offline-files';
+const offlineSupported = ('caches' in window);
+
+function getOfflineIds(){
+  try { return JSON.parse(localStorage.getItem('lexia-offline-ids') || '[]'); }
+  catch(e){ return []; }
+}
+function setOfflineIds(ids){
+  localStorage.setItem('lexia-offline-ids', JSON.stringify(ids));
+}
+function isMarkedOffline(bookId){
+  return getOfflineIds().includes(bookId);
+}
+
+/* Descarga el archivo del libro y lo guarda en caché local del navegador */
+async function enableOffline(book){
+  const url = getFileUrl(book);
+  if (!url) return false;
+  try {
+    const cache = await caches.open(OFFLINE_CACHE);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('No se pudo descargar el archivo');
+    await cache.put(url, response);
+    const ids = getOfflineIds();
+    if (!ids.includes(book.id)){ ids.push(book.id); setOfflineIds(ids); }
+    return true;
+  } catch(err){
+    console.error('Error descargando para offline:', err);
+    alert('No se pudo descargar "' + book.title + '" para lectura offline.');
+    return false;
+  }
+}
+
+/* Elimina el archivo cacheado del libro */
+async function disableOffline(book){
+  try {
+    const cache = await caches.open(OFFLINE_CACHE);
+    await cache.delete(getFileUrl(book));
+  } catch(err){ console.error(err); }
+  setOfflineIds(getOfflineIds().filter(id => id !== book.id));
+}
+
+/* Devuelve una URL local (blob) si el libro está cacheado, o la URL remota si no */
+async function getReadableFileUrl(book){
+  const url = getFileUrl(book);
+  if (!url || !offlineSupported) return url;
+  try {
+    const cache = await caches.open(OFFLINE_CACHE);
+    const cached = await cache.match(url);
+    if (cached){
+      const blob = await cached.blob();
+      return URL.createObjectURL(blob);
+    }
+  } catch(err){ console.warn('No se pudo leer la caché offline, se usa la red:', err); }
+  return url;
 }
 
 /* ============ LECTOR PDF / EPUB EMBEBIDO ============ */
@@ -875,7 +976,7 @@ document.addEventListener('fullscreenchange', () => {
 
 async function openPdfReader(book){
   try {
-    currentPdfDoc = await pdfjsLib.getDocument(getFileUrl(book)).promise;
+    currentPdfDoc = await pdfjsLib.getDocument(await getReadableFileUrl(book)).promise;
     const savedPage = parseInt(getProgress(book.id)) || 1;
     currentPage = Math.min(savedPage, currentPdfDoc.numPages);
     applyPdfTheme(readingTheme);
@@ -911,7 +1012,7 @@ async function openEpubReader(book){
   document.getElementById('nextPage').disabled = true;
 
   try {
-    currentEpubBook = ePub(getFileUrl(book), { openAs: 'epub' });
+    currentEpubBook = ePub(await getReadableFileUrl(book), { openAs: 'epub' });
     currentEpubRendition = currentEpubBook.renderTo('epubViewer', {
       width: '100%',
       height: '100%'
