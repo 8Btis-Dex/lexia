@@ -310,6 +310,8 @@
   .audio-bar span{ color:var(--gold-light); font-size:13px; }
   .audio-bar audio{ width:100%; }
   .audio-bar iframe{ width:100%; height:152px; border-radius:8px; }
+  .audio-bar a#audioExternalLink{ color:var(--gold); font-size:12px; text-decoration:none; align-self:flex-start; }
+  .audio-bar a#audioExternalLink:hover{ text-decoration:underline; }
 
   #themeSelector{
     padding:6px 10px;
@@ -525,6 +527,7 @@
       <span id="audioLabel">🎧 Audiolibro</span>
       <audio id="audioPlayer" controls preload="metadata"></audio>
       <iframe id="audioEmbed" style="display:none;" frameborder="0" allow="encrypted-media; autoplay; clipboard-write" loading="lazy"></iframe>
+      <a id="audioExternalLink" target="_blank" rel="noopener" style="display:none;">Abrir en la plataforma original ↗</a>
     </div>
     <div class="reader-body" id="readerBody">
       <canvas id="pdfCanvas"></canvas>
@@ -771,7 +774,7 @@ function getEmbedInfo(url){
       if (idx === -1 || !parts[idx + 1]) return null;
       const type = parts[idx];
       const id = parts[idx + 1].split('?')[0];
-      return { label: 'Spotify', height: 152, embedUrl: `https://open.spotify.com/embed/${type}/${id}` };
+      return { label: 'Spotify', height: 51, embedUrl: `https://open.spotify.com/embed/${type}/${id}` };
     }
 
     if (host === 'youtube.com' || host === 'youtu.be' || host === 'music.youtube.com'){
@@ -786,16 +789,16 @@ function getEmbedInfo(url){
         videoId = u.pathname.split('/')[2];
       }
       if (videoId){
-        return { label, height: 220, embedUrl: `https://www.youtube.com/embed/${videoId}${playlistId ? '?list=' + playlistId : ''}` };
+        return { label, height: 75, embedUrl: `https://www.youtube.com/embed/${videoId}${playlistId ? '?list=' + playlistId : ''}` };
       }
       if (playlistId){
-        return { label, height: 220, embedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}` };
+        return { label, height: 75, embedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}` };
       }
       return null;
     }
 
     if (host.includes('soundcloud.com')){
-      return { label: 'SoundCloud', height: 166, embedUrl: `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23d4af37&auto_play=false&show_user=true` };
+      return { label: 'SoundCloud', height: 55, embedUrl: `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23d4af37&auto_play=false&show_user=true` };
     }
 
     return null;
@@ -808,6 +811,7 @@ function setupAudioBar(book){
   const bar = document.getElementById('audioBar');
   const player = document.getElementById('audioPlayer');
   const embed = document.getElementById('audioEmbed');
+  const externalLink = document.getElementById('audioExternalLink');
 
   player.pause();
   player.removeAttribute('src');
@@ -815,6 +819,7 @@ function setupAudioBar(book){
   player.style.display = 'none';
   embed.style.display = 'none';
   embed.src = '';
+  externalLink.style.display = 'none';
 
   if (!book.audioUrl){
     bar.style.display = 'none';
@@ -828,6 +833,9 @@ function setupAudioBar(book){
     embed.style.height = info.height + 'px';
     embed.src = info.embedUrl;
     embed.style.display = 'block';
+    externalLink.href = book.audioUrl;
+    externalLink.textContent = `Si no reproduce, abrir en ${info.label} ↗`;
+    externalLink.style.display = 'inline-block';
   } else {
     document.getElementById('audioLabel').textContent = '🎧 Audiolibro';
     player.style.display = 'block';
