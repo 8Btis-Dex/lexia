@@ -144,6 +144,17 @@
   }
   .search-box svg{ flex-shrink:0; opacity:.6; }
 
+  .sort-select{
+    padding:10px 14px;
+    border-radius:14px;
+    border:1px solid var(--border);
+    background:var(--bg-card);
+    color:var(--text);
+    font-size:14px;
+    cursor:pointer;
+    box-shadow:0 2px 6px var(--shadow);
+  }
+
   .view-toggle{
     display:flex;
     background:var(--bg-card);
@@ -432,6 +443,15 @@
     cursor:pointer;
     font-size:12px;
   }
+  .admin-list-item .move-btn{
+    background:var(--navy);
+    color:var(--gold-light);
+    margin-right:4px;
+  }
+  .admin-list-item .move-btn:disabled{
+    opacity:.35;
+    cursor:default;
+  }
 
   .progress-badge{
     display:inline-block;
@@ -511,6 +531,11 @@
       </svg>
       <input id="searchInput" type="text" placeholder="Buscar por título o autor...">
     </div>
+    <select id="sortSelect" class="sort-select" title="Ordenar por">
+      <option value="custom">Orden personalizado</option>
+      <option value="title">Por título (A-Z)</option>
+      <option value="author">Por autor (A-Z)</option>
+    </select>
     <div class="view-toggle">
       <button id="gridBtn" class="active" title="Vista de grilla">▦</button>
       <button id="listBtn" title="Vista de lista">☰</button>
@@ -621,6 +646,7 @@ const ADMIN_PASSWORD = "Maite1805";
 
 let books = [];
 let currentView = localStorage.getItem('lexia-view') || 'grid';
+let currentSort = localStorage.getItem('lexia-sort') || 'custom';
 let currentPdfDoc = null;
 let currentPage = 1;
 let currentBookId = null;
@@ -656,6 +682,25 @@ document.getElementById('gridBtn').addEventListener('click', () => setView('grid
 document.getElementById('listBtn').addEventListener('click', () => setView('list'));
 setView(currentView);
 
+/* ============ ORDEN DE LA BIBLIOTECA ============ */
+document.getElementById('sortSelect').value = currentSort;
+document.getElementById('sortSelect').addEventListener('change', (e) => {
+  currentSort = e.target.value;
+  localStorage.setItem('lexia-sort', currentSort);
+  renderLibrary();
+});
+
+/* Orden personalizado: usa el campo "order" asignado desde el panel admin;
+   los libros que todavía no tienen "order" quedan al final, ordenados por título */
+function sortByCustomOrder(list){
+  return [...list].sort((a, b) => {
+    const oa = typeof a.order === 'number' ? a.order : Infinity;
+    const ob = typeof b.order === 'number' ? b.order : Infinity;
+    if (oa !== ob) return oa - ob;
+    return a.title.localeCompare(b.title, 'es', { sensitivity: 'base' });
+  });
+}
+
 /* ============ CARGA DE LIBROS DESDE FIRESTORE ============ */
 function loadBooks(){
   db.collection('books').orderBy('title').onSnapshot(snapshot => {
@@ -675,17 +720,26 @@ function renderLibrary(){
     (b.author || '').toLowerCase().includes(query)
   );
 
+  let sorted;
+  if (currentSort === 'title'){
+    sorted = [...filtered].sort((a, b) => a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }));
+  } else if (currentSort === 'author'){
+    sorted = [...filtered].sort((a, b) => (a.author || '').localeCompare(b.author || '', 'es', { sensitivity: 'base' }));
+  } else {
+    sorted = sortByCustomOrder(filtered);
+  }
+
   const lib = document.getElementById('library');
   const empty = document.getElementById('emptyState');
   lib.innerHTML = '';
 
-  if (filtered.length === 0){
+  if (sorted.length === 0){
     empty.style.display = 'block';
     return;
   }
   empty.style.display = 'none';
 
-  filtered.forEach(book => {
+  sorted.forEach(book => {
     const percent = getPercent(book.id);
     const card = document.createElement('div');
     card.className = 'book-card';
@@ -1168,7 +1222,8 @@ document.getElementById('addBookBtn').addEventListener('click', async () => {
     if (editingBookId){
       await db.collection('books').doc(editingBookId).update({ title, author, fileType, fileUrl, audioUrl, coverUrl, pages, year });
     } else {
-      await db.collection('books').add({ title, author, fileType, fileUrl, audioUrl, coverUrl, pages, year });
+      const maxOrder = books.reduce((max, b) => typeof b.order === 'number' ? Math.max(max, b.order) : max, -1);
+      await db.collection('books').add({ title, author, fileType, fileUrl, audioUrl, coverUrl, pages, year, order: maxOrder + 1 });
     }
     resetAdminForm();
   } catch(err){
@@ -1213,16 +1268,21 @@ function startEditBook(book){
 function renderAdminList(){
   const list = document.getElementById('adminList');
   list.innerHTML = '';
-  books.forEach(book => {
+  const ordered = sortByCustomOrder(books);
+  ordered.forEach((book, idx) => {
     const item = document.createElement('div');
     item.className = 'admin-list-item';
     item.innerHTML = `
       <span>${book.title} — ${book.author || 'N/A'} (${(book.fileType || 'pdf').toUpperCase()})</span>
       <div>
+        <button class="move-btn" data-action="up" data-id="${book.id}" title="Subir posición" ${idx === 0 ? 'disabled' : ''}>↑</button>
+        <button class="move-btn" data-action="down" data-id="${book.id}" title="Bajar posición" ${idx === ordered.length - 1 ? 'disabled' : ''}>↓</button>
         <button data-action="edit" data-id="${book.id}">Editar</button>
         <button data-action="delete" data-id="${book.id}">Eliminar</button>
       </div>
     `;
+    item.querySelector('[data-action="up"]').addEventListener('click', () => moveBook(book.id, 'up'));
+    item.querySelector('[data-action="down"]').addEventListener('click', () => moveBook(book.id, 'down'));
     item.querySelector('[data-action="edit"]').addEventListener('click', () => startEditBook(book));
     item.querySelector('[data-action="delete"]').addEventListener('click', async () => {
       if (confirm(`¿Eliminar "${book.title}"?`)){
@@ -1232,6 +1292,48 @@ function renderAdminList(){
     });
     list.appendChild(item);
   });
+}
+
+/* Asigna un valor de orden secuencial a todos los libros que todavía no lo tienen,
+   respetando el orden actual (personalizado ya asignado, o por título como respaldo) */
+async function ensureOrderValues(orderedList){
+  const needsMigration = orderedList.some(b => typeof b.order !== 'number');
+  if (!needsMigration) return;
+  const batch = db.batch();
+  orderedList.forEach((book, i) => {
+    book.order = i;
+    batch.update(db.collection('books').doc(book.id), { order: i });
+  });
+  try {
+    await batch.commit();
+  } catch(err){
+    console.error('Error asignando orden inicial:', err);
+  }
+}
+
+/* Intercambia la posición de un libro con la del vecino de arriba o abajo */
+async function moveBook(bookId, direction){
+  const ordered = sortByCustomOrder(books);
+  await ensureOrderValues(ordered);
+
+  const idx = ordered.findIndex(b => b.id === bookId);
+  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (idx === -1 || targetIdx < 0 || targetIdx >= ordered.length) return;
+
+  const current = ordered[idx];
+  const target = ordered[targetIdx];
+  const currentOrder = current.order;
+  const targetOrder = target.order;
+
+  try {
+    const batch = db.batch();
+    batch.update(db.collection('books').doc(current.id), { order: targetOrder });
+    batch.update(db.collection('books').doc(target.id), { order: currentOrder });
+    await batch.commit();
+  } catch(err){
+    console.error('Error moviendo el libro:', err);
+    alert('No se pudo cambiar la posición del libro.');
+  }
 }
 
 /* ============ INICIO ============ */
