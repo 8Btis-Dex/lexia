@@ -724,7 +724,7 @@ function renderLibrary(){
   if (currentSort === 'title'){
     sorted = [...filtered].sort((a, b) => a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }));
   } else if (currentSort === 'author'){
-    sorted = [...filtered].sort((a, b) => (a.author || '').localeCompare(b.author || '', 'es', { sensitivity: 'base' }));
+    sorted = sortByCustomOrder(filtered).sort((a, b) => (a.author || '').localeCompare(b.author || '', 'es', { sensitivity: 'base' }));
   } else {
     sorted = sortByCustomOrder(filtered);
   }
