@@ -8,6 +8,7 @@
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
 <!-- PDF.js para el visor embebido -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -633,6 +634,7 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
 /* Permite que el catálogo (lista de libros) quede disponible sin conexión
    una vez que se cargó al menos una vez con internet */
 db.enablePersistence().catch(err => {
@@ -642,7 +644,10 @@ db.enablePersistence().catch(err => {
 /* ============ CONFIG PDF.js ============ */
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-const ADMIN_PASSWORD = "Maite1805";
+/* La contraseña ya no vive en este archivo: se valida contra el usuario
+   admin creado en Firebase Authentication (proyecto lexia-601a8).
+   TODO: reemplazar por el email que crees en Firebase Authentication → Users. */
+const ADMIN_EMAIL = "cfedericotoledo@gmail.com";
 
 let books = [];
 let currentView = localStorage.getItem('lexia-view') || 'grid';
@@ -1190,12 +1195,14 @@ document.getElementById('passwordInput').addEventListener('keypress', e => {
 });
 function attemptLogin(){
   const pass = document.getElementById('passwordInput').value;
-  if (pass === ADMIN_PASSWORD){
-    document.getElementById('loginModal').classList.remove('active');
-    document.getElementById('adminModal').classList.add('active');
-  } else {
-    document.getElementById('loginError').textContent = 'Contraseña incorrecta.';
-  }
+  auth.signInWithEmailAndPassword(ADMIN_EMAIL, pass)
+    .then(() => {
+      document.getElementById('loginModal').classList.remove('active');
+      document.getElementById('adminModal').classList.add('active');
+    })
+    .catch(() => {
+      document.getElementById('loginError').textContent = 'Contraseña incorrecta.';
+    });
 }
 
 /* ============ PANEL ADMIN ============ */
