@@ -8,6 +8,7 @@
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
 <!-- PDF.js para el visor embebido -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -575,7 +576,8 @@
       <h3>Acceso administrador</h3>
       <button class="modal-close" id="closeLogin">&times;</button>
     </div>
-    <input type="password" id="passwordInput" placeholder="Contraseña">
+    <input type="email" id="emailInput" placeholder="Email" autocomplete="username">
+    <input type="password" id="passwordInput" placeholder="Contraseña" autocomplete="current-password">
     <div class="login-error" id="loginError"></div>
     <button id="loginSubmit">Ingresar</button>
   </div>
@@ -622,6 +624,7 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
 /* Permite que el catálogo (lista de libros) quede disponible sin conexión
    una vez que se cargó al menos una vez con internet */
 db.enablePersistence().catch(err => {
@@ -631,7 +634,6 @@ db.enablePersistence().catch(err => {
 /* ============ CONFIG PDF.js ============ */
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-const ADMIN_PASSWORD = "Maite1805";
 
 let books = [];
 let currentView = localStorage.getItem('lexia-view') || 'grid';
@@ -1168,6 +1170,7 @@ document.getElementById('closeReader').addEventListener('click', () => {
 /* ============ LOGIN ADMIN ============ */
 document.getElementById('adminAccessBtn').addEventListener('click', () => {
   document.getElementById('loginModal').classList.add('active');
+  document.getElementById('emailInput').value = '';
   document.getElementById('passwordInput').value = '';
   document.getElementById('loginError').textContent = '';
 });
@@ -1175,16 +1178,34 @@ document.getElementById('closeLogin').addEventListener('click', () => {
   document.getElementById('loginModal').classList.remove('active');
 });
 document.getElementById('loginSubmit').addEventListener('click', attemptLogin);
+document.getElementById('emailInput').addEventListener('keypress', e => {
+  if (e.key === 'Enter') attemptLogin();
+});
 document.getElementById('passwordInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') attemptLogin();
 });
-function attemptLogin(){
+async function attemptLogin(){
+  const email = document.getElementById('emailInput').value.trim();
   const pass = document.getElementById('passwordInput').value;
-  if (pass === ADMIN_PASSWORD){
+  const errorEl = document.getElementById('loginError');
+  const submitBtn = document.getElementById('loginSubmit');
+
+  if (!email || !pass){
+    errorEl.textContent = 'Completá el email y la contraseña.';
+    return;
+  }
+
+  errorEl.textContent = '';
+  submitBtn.disabled = true;
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
     document.getElementById('loginModal').classList.remove('active');
     document.getElementById('adminModal').classList.add('active');
-  } else {
-    document.getElementById('loginError').textContent = 'Contraseña incorrecta.';
+  } catch(err){
+    console.error('Error de login:', err);
+    errorEl.textContent = 'Email o contraseña incorrectos.';
+  } finally {
+    submitBtn.disabled = false;
   }
 }
 
