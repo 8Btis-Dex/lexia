@@ -352,6 +352,23 @@
     max-height:100%;
     margin:0;
   }
+  /* En pantalla completa solo se ve la X para salir: se ocultan título,
+     selector de tema, botón de pantalla completa y la barra inferior de porcentaje */
+  .reader-box.is-fullscreen #readerTitle,
+  .reader-box.is-fullscreen #themeSelector,
+  .reader-box.is-fullscreen #fullscreenBtn,
+  .reader-box.is-fullscreen .reader-controls,
+  .reader-box.is-fullscreen .audio-bar{
+    display:none;
+  }
+  .reader-box.is-fullscreen .modal-header{
+    justify-content:flex-end;
+    border-bottom:none;
+    position:absolute;
+    top:0; right:0;
+    z-index:2;
+    padding:10px 14px;
+  }
 
   /* Adaptación para tablets */
   @media (max-width: 1024px){
@@ -894,6 +911,13 @@ function registerEpubThemes(rendition){
   rendition.themes.register('light', { body: { background: '#ffffff !important', color: '#000000 !important' } });
   rendition.themes.register('dark', { body: { background: '#000000 !important', color: '#e6e6e6 !important' }, 'a, a:link': { color: '#8ecfff !important' } });
   rendition.themes.register('sepia', { body: { background: '#f4ecd8 !important', color: '#5b4636 !important' } });
+  /* Portada, prólogo u otras páginas basadas en imagen/SVG: que se ajusten al visor
+     en vez de mostrarse en su tamaño original (chico) */
+  rendition.themes.default({
+    'img': { 'max-width': '100% !important', 'max-height': '100% !important', 'width': 'auto !important', 'height': 'auto !important', 'object-fit': 'contain !important' },
+    'svg': { 'max-width': '100% !important', 'max-height': '100% !important', 'width': '100% !important', 'height': '100% !important' },
+    'html, body': { 'height': '100% !important' }
+  });
   rendition.themes.select(readingTheme);
 }
 
@@ -1061,7 +1085,8 @@ async function openEpubReader(book){
     currentEpubBook = ePub(await getReadableFileUrl(book), { openAs: 'epub' });
     currentEpubRendition = currentEpubBook.renderTo('epubViewer', {
       width: '100%',
-      height: '100%'
+      height: '100%',
+      spread: 'none'
     });
     registerEpubThemes(currentEpubRendition);
 
